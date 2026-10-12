@@ -1,0 +1,12 @@
+{
+  "name": "yijian-gomoku",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "19×19 五子棋，人机对弈与实时 AI 局势估算",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

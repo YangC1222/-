@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#244d3e">
+  <meta name="description" content="弈间 · 19×19 五子棋。与 AI 切磋或和朋友同屏对弈，实时局势分析、推荐落点、悔棋与棋谱导出。">
+  <title>弈间 · 五子棋</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a href="./" class="brand" aria-label="弈间首页"><img src="./favicon.svg" alt="" width="38" height="38"><span>弈间<small>GOMOKU CLUB</small></span></a>
+    <nav aria-label="页面导航"><span class="nav-active">对弈室</span><button class="text-button" id="rules-button">玩法说明 <span aria-hidden="true">↗</span></button><a class="repo-link" href="https://github.com/YangC1222/-" target="_blank" rel="noopener noreferrer" aria-label="查看 GitHub 源码">GitHub <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main class="page">
+    <section class="intro">
+      <div><div class="eyebrow"><span></span> 一方棋盘，无限可能</div><h1>落子，来一局。</h1><p>静下心来，与 AI 切磋，或与朋友一决高下。</p></div>
+      <div class="intro-actions"><button class="secondary-button invite-button" id="invite-button"><span aria-hidden="true">↗</span> 邀请好友</button><button class="primary-button" id="new-game"><span aria-hidden="true">＋</span> 开始新对局</button></div>
+    </section>
+    <div class="game-layout">
+      <section class="board-section" aria-label="五子棋对弈">
+        <div class="online-strip" id="online-strip" hidden><span id="online-message">正在连接…</span><button id="room-info">房间信息 ↗</button></div>
+        <div class="board-toolbar"><div class="room-title"><span class="live-dot"></span><strong>自由五子棋</strong><span class="board-size">19 × 19</span></div><button class="subtle-button" id="settings-button" aria-label="调整对局设置">对局设置 <span aria-hidden="true">⚙</span></button></div>
+        <div class="player-strip">
+          <div class="player" id="black-player"><span class="stone-icon black"></span><div><strong id="black-name">你 · 黑棋</strong><small id="black-role">先手</small></div><span class="turn-badge" id="black-turn">落子中</span></div>
+          <span class="versus">VS</span>
+          <div class="player white-player" id="white-player"><span class="turn-badge" id="white-turn" hidden>落子中</span><div><strong id="white-name">AI · 白棋</strong><small id="white-role">标准难度</small></div><span class="stone-icon white"></span></div>
+        </div>
+        <div class="board-frame"><div class="board-wood"><svg id="board" viewBox="0 0 660 660" role="grid" aria-label="19 行 19 列五子棋棋盘，方向键移动，回车落子" aria-rowcount="19" aria-colcount="19"></svg></div></div>
+        <div class="board-status"><span id="game-status" aria-live="polite"><span class="status-dot"></span>轮到你了，黑棋先行</span><span id="move-count">第 1 手</span></div>
+        <div class="game-actions"><button id="undo-button" disabled><span aria-hidden="true">↶</span> 悔棋</button><button id="pass-hint"><span aria-hidden="true">✧</span> 提示</button><button id="export-button"><span aria-hidden="true">↓</span> 保存棋谱</button><button class="resign-button" id="resign-button"><span aria-hidden="true">⚑</span> 认输</button></div>
+      </section>
+      <aside class="sidebar">
+        <section class="panel analysis-panel" aria-label="实时 AI 局势分析">
+          <div class="panel-heading"><h2><span class="sparkle" aria-hidden="true">✧</span> AI 局势分析</h2><span class="live-label" id="analysis-status"><span></span> 实时</span></div>
+          <div class="win-labels"><div><span><i class="mini-stone black"></i> 黑棋</span><strong id="black-percent">50.0<span>%</span></strong></div><div class="white-percent"><span>白棋 <i class="mini-stone white"></i></span><strong id="white-percent">50.0<span>%</span></strong></div></div>
+          <div class="win-bar" role="img" id="win-bar" aria-label="黑棋预计胜率 50%，白棋 50%"><div id="black-bar"></div></div>
+          <div class="advantage"><span id="advantage-text">双方势均力敌</span><span>预估胜率</span></div>
+          <div class="chart-heading">局势走势 <span>黑棋视角</span></div>
+          <svg class="trend-chart" id="trend-chart" viewBox="0 0 300 112" role="img" aria-label="黑棋预估胜率随手数变化"></svg>
+          <div class="chart-axis"><span>开局</span><span id="chart-last">当前</span></div>
+          <p class="analysis-summary" id="analysis-summary">从中心出发，寻找你的第一步。</p>
+          <details class="analysis-details"><summary>分析说明 <span id="search-meta">本地 AI 搜索</span></summary><p>基于连子威胁、攻防评估与有限深度搜索，将局势评分映射为胜率。百分比是未经实战校准的估算，供对弈参考。绿色曲线表示黑棋局势；点线处尚未完成分析。</p></details>
+        </section>
+        <section class="panel recommendations-panel"><div class="panel-heading"><h2>推荐落点</h2><label class="switch" title="在棋盘上显示推荐位置"><input type="checkbox" id="show-hints" checked aria-label="显示推荐落点"><span></span></label></div><div id="recommendations" class="recommendations"><div class="empty-note">正在寻找合适的落点…</div></div><p class="panel-footnote">点击建议，在棋盘上定位</p></section>
+        <section class="panel history-panel"><div class="panel-heading"><h2>落子记录</h2><span id="history-count" class="count-badge">0 手</span></div><div id="move-history" class="move-history" aria-label="落子记录"><div class="history-empty"><span aria-hidden="true">⠿</span><p>每一步，都是新的开始</p><small>落子后，棋谱将在这里记录</small></div></div></section>
+        <div class="gentle-note"><span aria-hidden="true">◌</span><p>不急于胜负，享受思考的乐趣。<small>对局自动保存在此浏览器</small></p></div>
+      </aside>
+    </div>
+    <footer><span>弈间 <span class="footer-dot">·</span> 一起，享受落子的时光</span><span>自由规则 · 五子连珠即胜</span></footer>
+  </main>
+  <div id="toast" role="status" class="toast" hidden></div>
+  <dialog id="settings-dialog" class="modal"><form id="settings-form"><div class="modal-heading"><div class="eyebrow">A NEW CHALLENGE</div><h2>开始一场新对局</h2><p>选好你的对手，落下第一颗棋子。</p></div><fieldset><legend>对弈模式</legend><div class="option-row"><label><input type="radio" name="mode" value="ai" checked><span>✧ 人机对弈<small>与本地 AI 切磋</small></span></label><label><input type="radio" name="mode" value="local"><span>♟ 同屏双人<small>与朋友轮流落子</small></span></label></div></fieldset><fieldset id="side-field"><legend>你的执子</legend><div class="option-row"><label><input type="radio" name="human" value="1" checked><span>● 执黑先行</span></label><label><input type="radio" name="human" value="2"><span>○ 执白后行</span></label></div></fieldset><label class="select-field" id="level-field">AI 难度<select name="level"><option value="easy">轻松 · 快速搜索</option><option value="normal" selected>标准 · 均衡搜索</option><option value="hard">挑战 · 深入搜索</option></select></label><p class="dialog-note" id="new-game-note">自由五子棋：无禁手，连续五子或以上获胜。</p><div class="modal-actions"><button type="button" class="secondary-button" id="settings-cancel">取消</button><button type="submit" class="primary-button">开始对局 ↗</button></div></form></dialog>
+  <dialog id="confirm-dialog" class="modal compact-modal"><h2 id="confirm-title">确认认输？</h2><p id="confirm-text">本局将结束，对手获胜。</p><div class="modal-actions"><button class="secondary-button" id="confirm-cancel">继续对弈</button><button class="primary-button" id="confirm-ok">确认认输</button></div></dialog>
+  <dialog id="room-dialog" class="modal room-modal"><div class="eyebrow">PLAY TOGETHER</div><h2>隔着距离，也能对弈。</h2><p>创建房间，把邀请链接发给好友。房主执黑，好友执白。</p><div class="room-status" id="room-status" role="status">准备好，与好友来一局。</div><label class="room-label">邀请链接<div class="copy-row"><input id="invite-link" readonly placeholder="创建房间后生成邀请链接" aria-label="邀请链接"><button id="copy-invite" disabled>复制</button></div></label><div class="room-create-row"><button class="primary-button" id="create-room">创建邀请房间 ↗</button><button class="secondary-button" id="reconnect-room" hidden>重新连接</button></div><details class="join-details"><summary>已经有好友的邀请？</summary><label class="room-label">粘贴邀请链接或房间号<input id="join-link" placeholder="粘贴好友分享的完整链接"></label><button class="secondary-button" id="join-room">加入对局</button></details><p class="dialog-note">请保持页面打开。联机依赖公共连接服务；网络受限时可重试或切换网络。刷新房主页面会关闭房间。</p><div class="modal-actions"><button class="secondary-button" id="leave-room" hidden>离开房间</button><button class="primary-button" id="room-close">返回棋盘</button></div></dialog>
+  <dialog id="request-dialog" class="modal compact-modal"><h2 id="request-title">对方申请悔棋</h2><p id="request-text">是否同意对方的申请？</p><div class="modal-actions"><button class="secondary-button" id="request-decline">拒绝</button><button class="primary-button" id="request-accept">同意</button></div></dialog>
+  <dialog id="rules-dialog" class="modal rules-modal"><div class="eyebrow">HOW TO PLAY</div><h2>五子连珠，落子成局</h2><p>在 19×19 棋盘的交点落子，黑棋先行，双方轮流下一子。横向、竖向或斜向连续形成五子或以上，即可获胜。</p><ul><li>采用自由规则，无三三、四四或长连禁手。</li><li>人机对弈悔棋会退回你上一次落子前；双人模式每次退一手。</li><li>棋盘已满且无人连五为和棋；认输则对手获胜。</li><li>AI 分析显示估算胜率与推荐落点，结果受搜索深度限制。</li><li>键盘：方向键定位交点，回车或空格落子。</li></ul><button class="primary-button" id="rules-close">知道了</button></dialog>
+  <script src="./vendor/peerjs.min.js"></script>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
