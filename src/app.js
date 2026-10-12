@@ -5,7 +5,13 @@ const $ = id => document.getElementById(id);
 const SVG = 'http://www.w3.org/2000/svg';
 const STORAGE = 'yijian-gomoku-v1';
 const LEVEL_NAMES = { easy: '轻松', normal: '标准', hard: '挑战' };
-const ORIGIN = 42, STEP = 32;
+const PUBLIC_URL = 'https://yangc1222.github.io/-/';
+let preferences = { numbers: false, coordinates: true, touchConfirm: true };
+try {
+  const savedPreferences = JSON.parse(localStorage.getItem('yijian-board-preferences'));
+  for (const key of Object.keys(preferences)) if (typeof savedPreferences?.[key] === 'boolean') preferences[key] = savedPreferences[key];
+} catch { /* Storage can be unavailable for a local file. */ }
+let pendingMove = null;
 let game = createGame(), rates = [50], analysis = null, busy = false;
 let worker = null, revision = 0, aiTimer = null, toastTimer = null, marked = null;
 let focusIndex = 180, confirmAction = null, storageWarned = false;
@@ -18,7 +24,6 @@ function svg(tag, attrs = {}, text = null) {
   if (text !== null) node.textContent = text;
   return node;
 }
-const point = index => [ORIGIN + index % SIZE * STEP, ORIGIN + Math.floor(index / SIZE) * STEP];
 function toast(message) {
   clearTimeout(toastTimer); $('toast').textContent = message; $('toast').hidden = false;
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3000);
@@ -41,37 +46,42 @@ try {
 
 function buildBoard() {
   const board = $('board');
-  const defs = svg('defs');
-  for (const [id, stops] of [['black-stone', [['0%', '#626660'], ['48%', '#2c302d'], ['100%', '#141a15']]], ['white-stone', [['0%', '#fff'], ['60%', '#fdfdf8'], ['100%', '#dfe3d9']]]]) {
-    const gradient = svg('radialGradient', { id, cx: '32%', cy: '25%', r: '80%' });
-    stops.forEach(([offset, color]) => gradient.append(svg('stop', { offset, 'stop-color': color })));
-    defs.append(gradient);
+  for (const side of ['top', 'bottom', 'left', 'right']) {
+    const labels = document.createElement('div'); labels.className = `board-coordinates coordinates-${side}`; labels.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < SIZE; i++) {
+      const label = document.createElement('span'); label.textContent = side === 'top' || side === 'bottom' ? COLS[i] : SIZE - i; labels.append(label);
+    }
+    board.append(labels);
   }
-  const filter = svg('filter', { id: 'stone-shadow', x: '-40%', y: '-40%', width: '180%', height: '180%' });
-  filter.append(svg('feDropShadow', { dx: 0.8, dy: 1.7, stdDeviation: 1.4, 'flood-color': '#574019', 'flood-opacity': 0.32 }));
-  defs.append(filter); board.append(defs);
-  const grid = svg('g', { 'aria-hidden': true });
-  for (let i = 0; i < SIZE; i++) {
-    const p = ORIGIN + i * STEP;
-    const cls = `grid-line ${i === 0 || i === SIZE - 1 ? 'grid-edge' : ''}`;
-    grid.append(svg('line', { x1: ORIGIN, y1: p, x2: 618, y2: p, class: cls }));
-    grid.append(svg('line', { x1: p, y1: ORIGIN, x2: p, y2: 618, class: cls }));
-    for (const y of [24, 641]) grid.append(svg('text', { x: p, y, class: 'coordinate-label', 'text-anchor': 'middle' }, COLS[i]));
-    for (const x of [21, 640]) grid.append(svg('text', { x, y: p + 3, class: 'coordinate-label', 'text-anchor': 'middle' }, String(SIZE - i)));
-  }
-  for (const r of [3, 9, 15]) for (const c of [3, 9, 15]) grid.append(svg('circle', { cx: ORIGIN + c * STEP, cy: ORIGIN + r * STEP, r: 3, class: 'star-point' }));
-  board.append(grid, svg('g', { id: 'hints-layer', 'aria-hidden': true }), svg('g', { id: 'stones-layer', 'aria-hidden': true }));
+  const grid = document.createElement('div'); grid.className = 'board-grid'; grid.setAttribute('role', 'presentation');
   for (let r = 0; r < SIZE; r++) {
-    const row = svg('g', { role: 'row', 'aria-rowindex': r + 1 });
+    const row = document.createElement('div'); row.className = 'board-row'; row.setAttribute('role', 'row'); row.setAttribute('aria-rowindex', r + 1);
     for (let c = 0; c < SIZE; c++) {
-      const index = r * SIZE + c, [x, y] = point(index);
-      const cell = svg('rect', { x: x - 16, y: y - 16, width: 32, height: 32, class: 'cell-target', role: 'gridcell', 'aria-colindex': c + 1, 'data-index': index, tabindex: index === focusIndex ? 0 : -1 });
-      cell.addEventListener('click', () => humanMove(index));
-      cell.addEventListener('focus', () => { cells[focusIndex]?.setAttribute('tabindex', -1); focusIndex = index; cell.setAttribute('tabindex', 0); });
+      const index = r * SIZE + c;
+      const cell = document.createElement('button'); cell.type = 'button'; cell.className = 'cell-target'; cell.dataset.index = index;
+      cell.setAttribute('role', 'gridcell'); cell.setAttribute('aria-colindex', c + 1); cell.tabIndex = index === focusIndex ? 0 : -1;
+      if (c === 0) cell.classList.add('edge-left'); if (c === 18) cell.classList.add('edge-right');
+      if (r === 0) cell.classList.add('edge-top'); if (r === 18) cell.classList.add('edge-bottom');
+      if ([3, 9, 15].includes(r) && [3, 9, 15].includes(c)) {
+        const star = document.createElement('span'); star.className = 'star-point'; star.setAttribute('aria-hidden', 'true'); cell.append(star);
+      }
+      for (const name of ['ghost-stone', 'stone-piece', 'hint-marker']) {
+        const span = document.createElement('span'); span.className = name; span.setAttribute('aria-hidden', 'true'); cell.append(span);
+      }
+      let pointerType = 'mouse';
+      cell.addEventListener('pointerdown', event => { pointerType = event.pointerType; });
+      cell.addEventListener('click', event => {
+        if (event.detail > 0 && pointerType === 'touch' && preferences.touchConfirm && canHumanPlay() && !game.board[index]) {
+          pendingMove = index; $('selected-point').textContent = coordinate(index); $('placement-confirm').hidden = false; renderBoard();
+        } else humanMove(index);
+      });
+      cell.addEventListener('pointerenter', () => { $('point-readout').textContent = `${coordinate(index)}${game.board[index] ? ' · 已落子' : ' · 空交点'}`; });
+      cell.addEventListener('focus', () => { cells[focusIndex]?.setAttribute('tabindex', -1); focusIndex = index; cell.tabIndex = 0; $('point-readout').textContent = coordinate(index); });
       row.append(cell); cells.push(cell);
     }
-    board.append(row);
+    grid.append(row);
   }
+  board.append(grid);
   board.addEventListener('keydown', event => {
     const index = Number(event.target.dataset.index);
     if (!Number.isInteger(index)) return;
@@ -83,30 +93,43 @@ function buildBoard() {
 }
 
 function renderBoard() {
-  const layer = $('stones-layer'); layer.replaceChildren();
-  game.moves.forEach((m, i) => {
-    const [x, y] = point(m.index);
-    layer.append(svg('circle', { cx: x, cy: y, r: 14, fill: `url(#${m.color === 1 ? 'black' : 'white'}-stone)`, class: 'stone-svg' }));
-    if (i === game.moves.length - 1) layer.append(svg('circle', { cx: x, cy: y, r: 4, stroke: m.color === 1 ? '#dbcba1' : '#8a986f', class: 'last-ring' }));
-    if (marked === m.index) layer.append(svg('circle', { cx: x, cy: y, r: 17, stroke: '#d29c59', 'stroke-width': 2, fill: 'none', 'pointer-events': 'none' }));
-  });
-  for (const index of game.line) { const [x, y] = point(index); layer.append(svg('circle', { cx: x, cy: y, r: 16, class: 'winning-mark' })); }
+  if (pendingMove !== null && (!canHumanPlay() || game.board[pendingMove])) clearPlacement();
+  const board = $('board'), moves = new Map(game.moves.map((m, i) => [m.index, i + 1]));
+  board.dataset.turn = game.turn; board.dataset.canPlay = canHumanPlay();
+  board.classList.toggle('show-numbers', preferences.numbers); board.classList.toggle('hide-coordinates', !preferences.coordinates);
   cells.forEach((cell, i) => {
-    cell.setAttribute('aria-label', `${coordinate(i)}，${game.board[i] === 1 ? '黑棋' : game.board[i] === 2 ? '白棋' : '空交点'}`);
-    cell.setAttribute('aria-disabled', !!game.board[i] || game.status !== 'playing' || (game.settings.mode !== 'local' && game.turn !== game.settings.human) || (game.settings.mode === 'online' && !room?.ready));
+    const color = game.board[i], piece = cell.querySelector('.stone-piece');
+    piece.classList.toggle('black', color === 1); piece.classList.toggle('white', color === 2);
+    piece.hidden = !color; piece.textContent = moves.get(i) || '';
+    cell.classList.toggle('occupied', !!color); cell.classList.toggle('last-move', game.moves.at(-1)?.index === i);
+    cell.classList.toggle('winning-mark', game.line.includes(i)); cell.classList.toggle('marked', marked === i);
+    cell.classList.toggle('pending-placement', pendingMove === i);
+    cell.setAttribute('aria-label', `${coordinate(i)}，${color === 1 ? '黑棋' : color === 2 ? '白棋' : '空交点'}${color ? `，第 ${moves.get(i)} 手` : ''}`);
+    cell.setAttribute('aria-disabled', !!color || !canHumanPlay());
   });
   renderHints();
 }
 
 function renderHints() {
-  const layer = $('hints-layer'); layer.replaceChildren();
+  cells.forEach(cell => { cell.querySelector('.hint-marker').hidden = true; cell.classList.remove('recommended', 'best-recommendation'); });
   if (!$('show-hints').checked || busy || game.status !== 'playing') return;
   (analysis?.recommendations || []).forEach((m, i) => {
     if (game.board[m.index]) return;
-    const [x, y] = point(m.index), group = svg('g', { class: 'hint-marker' });
-    group.append(svg('circle', { cx: x, cy: y, r: marked === m.index ? 13 : 10, fill: i === 0 ? '#5e7c55' : '#648157', 'fill-opacity': i === 0 ? 0.85 : 0.38, stroke: marked === m.index ? '#fff7da' : 'none', 'stroke-width': 2 }));
-    group.append(svg('text', { x, y: y + 0.5, fill: '#fff9df' }, String(i + 1))); layer.append(group);
+    const cell = cells[m.index], marker = cell.querySelector('.hint-marker'); marker.hidden = false; marker.textContent = i + 1;
+    cell.classList.add('recommended'); cell.classList.toggle('best-recommendation', i === 0);
   });
+}
+
+function canHumanPlay() {
+  return game.status === 'playing' && (game.settings.mode === 'local' || game.turn === game.settings.human)
+    && (game.settings.mode !== 'online' || !!room?.ready);
+}
+function clearPlacement() {
+  if (pendingMove !== null) cells[pendingMove]?.classList.remove('pending-placement');
+  pendingMove = null; $('placement-confirm').hidden = true;
+}
+function savePreferences() {
+  try { localStorage.setItem('yijian-board-preferences', JSON.stringify(preferences)); } catch { /* The settings still apply in this session. */ }
 }
 
 function renderHistory() {
@@ -138,7 +161,7 @@ function render() {
   for (const [color, name] of [[1, 'black'], [2, 'white']]) {
     $(`${name}-name`).textContent = `${ai || online ? color === game.settings.human ? '你' : online ? '好友' : 'AI' : color === 1 ? '玩家一' : '玩家二'} · ${color === 1 ? '黑棋' : '白棋'}`;
     $(`${name}-role`).textContent = online ? color === 1 ? '房主 · 先手' : '好友 · 后手' : ai && color !== game.settings.human ? `${LEVEL_NAMES[game.settings.level]}难度` : color === 1 ? '先手' : '后手';
-    $(`${name}-turn`).hidden = !active || game.turn !== color;
+    $(`${name}-turn`).hidden = !active || game.turn !== color || (online && !room?.ready);
     $(`${name}-turn`).textContent = ai && !humanTurn ? '思考中' : '落子中';
   }
   const colorName = game.turn === 1 ? '黑棋' : '白棋';
@@ -195,7 +218,7 @@ function updateAnalysis(result) {
     const location = document.createElement('strong'); location.textContent = coordinate(m.index);
     const reason = document.createElement('span'); reason.className = 'reason'; reason.textContent = m.reason;
     button.append(rank, location, reason);
-    button.onclick = () => { marked = m.index; $('show-hints').checked = true; renderHints(); cells[m.index].focus({ preventScroll: true }); toast(`推荐 ${coordinate(m.index)}：${m.reason}`); save(); };
+    button.onclick = () => { marked = m.index; $('show-hints').checked = true; renderBoard(); cells[m.index].focus({ preventScroll: true }); toast(`推荐 ${coordinate(m.index)}：${m.reason}`); save(); };
     container.append(button);
   });
   rates[game.moves.length] = black;
@@ -228,7 +251,7 @@ function requestAnalysis() {
   }
   const id = revision; setBusy(true); renderChart();
   try {
-    worker = new Worker(new URL('./ai-worker.js', import.meta.url), { type: 'module' });
+    worker = new Worker(globalThis.__GOMOKU_WORKER_URL__ || new URL('./ai-worker.js', import.meta.url), { type: globalThis.__GOMOKU_WORKER_URL__ ? 'classic' : 'module' });
     worker.onmessage = ({ data }) => {
       if (data.revision !== revision) return;
       worker?.terminate(); worker = null;
@@ -250,6 +273,7 @@ function failed(message) {
   cancelAnalysis(); setBusy(false, true); $('analysis-summary').textContent = message; toast(message);
 }
 function afterMove() {
+  clearPlacement();
   marked = null; rates.length = game.moves.length + 1; rates[game.moves.length] = null;
   render(); save(); requestAnalysis();
 }
@@ -260,13 +284,14 @@ function humanMove(index) {
     if (!room?.ready) { toast('等待好友连接或处理申请后再落子'); return; }
     if (game.turn !== room.color) { toast('现在轮到好友落子'); return; }
     if (game.board[index]) { toast('这个交点已经有棋子了'); return; }
-    room.action('move', index); return;
+    clearPlacement(); room.action('move', index); return;
   }
   if (game.board[index]) { toast('这个交点已经有棋子了'); return; }
-  if (play(game, index)) afterMove();
+  clearPlacement(); if (play(game, index)) afterMove();
 }
 
 $('undo-button').onclick = () => {
+  clearPlacement();
   if (game.settings.mode === 'online') { if (room?.request('undo')) toast('已发出悔棋申请，等待好友同意'); return; }
   const count = undo(game); if (!count) return;
   cancelAnalysis(); rates.length = game.moves.length + 1; marked = null; render(); save(); requestAnalysis(); toast(`已退回 ${count} 手`);
@@ -288,10 +313,39 @@ $('pass-hint').onclick = () => {
   if (busy) { toast('AI 正在分析，请稍候'); return; }
   const recommendation = analysis?.recommendations?.[0];
   if (!recommendation) { requestAnalysis(); return; }
-  $('show-hints').checked = true; marked = recommendation.index; renderHints(); cells[marked].focus({ preventScroll: true }); toast(`建议落在 ${coordinate(marked)}：${recommendation.reason}`); save();
+  $('show-hints').checked = true; marked = recommendation.index; renderBoard(); cells[marked].focus({ preventScroll: true }); toast(`建议落在 ${coordinate(marked)}：${recommendation.reason}`); save();
 };
 $('show-hints').onchange = () => { renderHints(); save(); };
 $('analysis-status').onclick = () => { if (!busy && !analysis) requestAnalysis(); };
+
+$('confirm-placement').onclick = () => { if (pendingMove !== null) humanMove(pendingMove); };
+$('cancel-placement').onclick = () => { clearPlacement(); renderBoard(); };
+for (const [id, key] of [['toggle-numbers', 'numbers'], ['toggle-coordinates', 'coordinates'], ['toggle-touch', 'touchConfirm']]) {
+  $(id).setAttribute('aria-pressed', preferences[key]);
+  $(id).onclick = () => {
+    preferences[key] = !preferences[key]; $(id).setAttribute('aria-pressed', preferences[key]);
+    if (key === 'touchConfirm') { clearPlacement(); toast(preferences[key] ? '触屏先选点，再确认落子' : '触屏点击交点即可落子'); }
+    renderBoard(); savePreferences();
+  };
+}
+$('zoom-board').onclick = () => {
+  const zoomed = $('board-viewport').classList.toggle('zoomed'); $('zoom-board').setAttribute('aria-pressed', zoomed);
+  $('zoom-board').textContent = zoomed ? '还原' : '放大';
+  if (zoomed) {
+    const viewport = $('board-viewport');
+    viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) / 2; viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) / 2;
+    toast('棋盘已放大，可拖动或滚动查看各处');
+  }
+};
+function toggleFocus(force) {
+  const focused = typeof force === 'boolean' ? (document.body.classList.toggle('focus-mode', force), force) : document.body.classList.toggle('focus-mode');
+  $('focus-board').setAttribute('aria-pressed', focused); $('focus-board').textContent = focused ? '退出专注' : '专注';
+}
+$('focus-board').onclick = () => toggleFocus();
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !document.querySelector('dialog[open]')) { clearPlacement(); if (document.body.classList.contains('focus-mode')) toggleFocus(false); }
+});
+if (location.protocol === 'file:') $('download-html').href = location.href;
 
 function showSettings() {
   const form = $('settings-form');
@@ -320,21 +374,29 @@ $('export-button').onclick = () => {
 };
 
 function leaveOnline() {
+  clearPlacement();
   room?.destroy(); room = null; roomState = 'idle'; activeRequest = null; lastOnlineVersion = -1;
   $('online-strip').hidden = true; $('invite-link').value = ''; $('copy-invite').disabled = true; $('leave-room').hidden = true; $('reconnect-room').hidden = true;
   $('create-room').hidden = false; $('room-status').textContent = '准备好，与好友来一局。';
   $('request-dialog').close();
-  const url = new URL(location.href); url.searchParams.delete('room'); history.replaceState(null, '', url);
+  setRoomParameter(null);
+}
+
+function setRoomParameter(id) {
+  if (location.protocol === 'file:') return;
+  const url = new URL(location.href);
+  if (id) url.searchParams.set('room', id); else url.searchParams.delete('room');
+  history.replaceState(null, '', url);
 }
 
 async function startOnline(host, id = '') {
   leaveOnline(); cancelAnalysis(); game = createGame({ mode: 'online', human: host ? 1 : 2 });
   rates = [50]; marked = null; analysis = null; $('online-strip').hidden = false;
   $('leave-room').hidden = false; $('create-room').hidden = true;
-  if (!host) { const url = new URL(location.href); url.searchParams.set('room', id); history.replaceState(null, '', url); }
+  if (!host) setRoomParameter(id);
   room = new OnlineRoom({
     onInvite: roomId => {
-      const url = new URL(location.href); url.search = ''; url.searchParams.set('room', roomId); url.hash = '';
+      const url = new URL(location.protocol === 'file:' ? PUBLIC_URL : location.href); url.search = ''; url.searchParams.set('room', roomId); url.hash = '';
       $('invite-link').value = url.href; $('copy-invite').disabled = false;
     },
     onStatus: status => {
@@ -350,6 +412,7 @@ async function startOnline(host, id = '') {
       game = next; game.settings.human = room.color;
       if (!pending && activeRequest) { activeRequest = null; $('request-dialog').close(); }
       if (changed) {
+        clearPlacement();
         lastOnlineVersion = version;
         if (!game.moves.length) rates = [50];
         else { rates.length = game.moves.length + 1; rates[game.moves.length] = null; }
